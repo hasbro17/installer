@@ -9,10 +9,8 @@ import (
 	"sigs.k8s.io/yaml"
 
 	configv1alpha1 "github.com/openshift/api/config/v1alpha1"
-	features "github.com/openshift/api/features"
 	"github.com/openshift/installer/pkg/asset"
-	"github.com/openshift/installer/pkg/asset/installconfig"
-	pkidefaults "github.com/openshift/installer/pkg/types/pki"
+	"github.com/openshift/installer/pkg/asset/tls"
 )
 
 var pkiCfgFilename = path.Join(manifestDir, "cluster-pki-02-config.yaml")
@@ -33,25 +31,18 @@ func (*PKIConfiguration) Name() string {
 // the asset.
 func (*PKIConfiguration) Dependencies() []asset.Asset {
 	return []asset.Asset{
-		&installconfig.InstallConfig{},
+		&tls.SignerPKIConfig{},
 	}
 }
 
 // Generate generates the PKI custom resource manifest.
 // The manifest is only generated when the ConfigurablePKI feature gate is enabled.
 func (p *PKIConfiguration) Generate(_ context.Context, dependencies asset.Parents) error {
-	installConfig := &installconfig.InstallConfig{}
-	dependencies.Get(installConfig)
+	pkiCfg := &tls.SignerPKIConfig{}
+	dependencies.Get(pkiCfg)
 
-	if !installConfig.Config.Enabled(features.FeatureGateConfigurablePKI) {
+	if !pkiCfg.ConfigurablePKIEnabled {
 		return nil
-	}
-
-	profile := pkidefaults.DefaultPKIProfile()
-
-	// Overlay user's signerCertificates if specified in install-config
-	if installConfig.Config.PKI != nil {
-		profile.SignerCertificates = installConfig.Config.PKI.SignerCertificates
 	}
 
 	config := &configv1alpha1.PKI{
@@ -64,10 +55,9 @@ func (p *PKIConfiguration) Generate(_ context.Context, dependencies asset.Parent
 		},
 		Spec: configv1alpha1.PKISpec{
 			CertificateManagement: configv1alpha1.PKICertificateManagement{
-				// TODO(htariq): Should this be Default if PKI is unset in the install config?
 				Mode: configv1alpha1.PKICertificateManagementModeCustom,
 				Custom: configv1alpha1.CustomPKIPolicy{
-					PKIProfile: profile,
+					PKIProfile: pkiCfg.Profile,
 				},
 			},
 		},
